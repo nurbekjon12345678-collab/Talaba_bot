@@ -1,4 +1,5 @@
 pyTelegramBotAPI
+flask
 g4f
 reportlab
 python-docx
