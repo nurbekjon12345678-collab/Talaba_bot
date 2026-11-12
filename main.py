@@ -1,19 +1,11 @@
-from docx import Document
 from flask import Flask
-import g4f
 import os
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.graphics.shapes import Drawing, Rect, String, Line
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import sqlite3
 import telebot
 from telebot import types
-import threading
+import sqlite3
 import re
+import g4f
+import threading
 
 try:
     from docx import Document
@@ -21,7 +13,7 @@ try:
 except ImportError:
     WORD_AVAILABLE = False
 
-# 1. Tokeningiz va sozlamalar
+# 1. Tokeningiz va asosiy sozlamalar
 TOKEN = "9204315206:AAHcHQDoCP1L7PNxCf_r4LedwkHbUIiyLnE"
 REQUIRED_CHANNEL = "@talaba_guruh1"
 REQUIRED_GROUP = "@talaba_guruh1"
@@ -36,20 +28,6 @@ app = Flask(__name__)
 @app.route("/")
 def home():
     return "Talaba Bot is active 24/7!"
-
-def register_unicode_font():
-    font_paths = [
-        "/system/fonts/Roboto-Regular.ttf",
-        "/system/fonts/DroidSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    ]
-    for path in font_paths:
-        if os.path.exists(path):
-            pdfmetrics.registerFont(TTFont('CustomFont', path))
-            return 'CustomFont'
-    return 'Helvetica'
-
-PDF_FONT = register_unicode_font()
 
 def init_db():
     conn = sqlite3.connect('students_bot.db')
@@ -87,7 +65,7 @@ def clean_text_for_pdf(text):
     cleaned_lines = []
     for line in lines:
         l_lower = line.lower()
-        if any(w in l_lower for w in ["i will now", "your slide", "feel free", "here is", "http://", "https://", "generate", "в такие вопросы", "```html", "```"]):
+        if any(w in l_lower for w in ["copilot moved", "install the new", "sign in with", "http://", "https://", "generate", "```"]):
             continue
         cleaned_line = line.replace("**", "").replace("*", "").replace("###", "").replace("##", "").replace("#", "")
         cleaned_line = cleaned_line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -95,20 +73,28 @@ def clean_text_for_pdf(text):
             cleaned_lines.append(cleaned_line.strip())
     return "\n".join(cleaned_lines)
 
-def create_topic_drawing(title_text, topic_name):
-    d = Drawing(400, 160)
-    d.add(Rect(0, 0, 400, 160, fillColor=colors.HexColor('#f8fafc'), strokeColor=colors.HexColor('#cbd5e1'), strokeWidth=1, rx=8, ry=8))
-    d.add(Rect(20, 120, 360, 25, fillColor=colors.HexColor('#1a365d'), strokeColor=None, rx=4, ry=4))
-    d.add(String(25, 127, f"Sxema: {topic_name[:35]}", fontName=PDF_FONT, fontSize=11, fillColor=colors.white))
-    d.add(Rect(30, 40, 90, 50, fillColor=colors.HexColor('#e2e8f0'), strokeColor=colors.HexColor('#64748b'), rx=4, ry=4))
-    d.add(String(42, 62, "1-Bosqich", fontName=PDF_FONT, fontSize=10, fillColor=colors.HexColor('#1e293b')))
-    d.add(Line(120, 65, 155, 65, strokeColor=colors.HexColor('#1a365d'), strokeWidth=2))
-    d.add(Rect(155, 40, 90, 50, fillColor=colors.HexColor('#bfdbfe'), strokeColor=colors.HexColor('#3b82f6'), rx=4, ry=4))
-    d.add(String(167, 62, "Amaliyot", fontName=PDF_FONT, fontSize=10, fillColor=colors.HexColor('#1e395b')))
-    d.add(Line(245, 65, 280, 65, strokeColor=colors.HexColor('#1a365d'), strokeWidth=2))
-    d.add(Rect(280, 40, 90, 50, fillColor=colors.HexColor('#bbf7d0'), strokeColor=colors.HexColor('#22c55e'), rx=4, ry=4))
-    d.add(String(295, 62, "Xulosa", fontName=PDF_FONT, fontSize=10, fillColor=colors.HexColor('#166534')))
-    return d
+def ask_ai(prompt, lang_name):
+    full_prompt = (
+        f"MUHIM: Faqat va faqat {lang_name} tilida yoz. "
+        f"Hech qanday reklama, chet el ilovalari haqida xabar, HTML kod ishlatma. "
+        f"Mavzu bo'yicha juda uzun, chuqur ilmiy va batafsil matn yoz.\n\n" + prompt
+    )
+    
+    models_to_try = [g4f.models.default, g4f.models.gpt_35_turbo, g4f.models.gemini]
+    
+    for model_name in models_to_try:
+        try:
+            response = g4f.ChatCompletion.create(
+                model=model_name,
+                messages=[{"role": "user", "content": full_prompt}]
+            )
+            if response and len(response) > 100 and "Copilot moved" not in response:
+                return response
+        except Exception:
+            continue
+            
+    return (f"Ushbu mavzu zamonaviy ilm-fan va amaliyotda muhim o'rin tutadi. "
+            f"Uning nazariy asoslari, tahlillari va amaliy ahamiyati ilmiy yondashuvlar asosida o'rganiladi.")
 
 def main_menu(user_id):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -133,24 +119,6 @@ def format_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
     markup.add(types.KeyboardButton("📄 PDF (Printer uchun)"), types.KeyboardButton("📝 Word (.docx)"))
     return markup
-
-def ask_ai(prompt, lang_name):
-    full_prompt = (
-        f"MUHIM: Faqat va faqat {lang_name} tilida yoz. "
-        f"Hech qanday HTML kod, inglizcha kirish yoki xulosa so'zlarini ishlatma. "
-        f"Mavzu bo'yicha juda uzun, chuqur ilmiy va batafsil matn yoz.\n\n" + prompt
-    )
-    for model_name in [g4f.models.gemini, g4f.models.gpt_4o]:
-        try:
-            response = g4f.ChatCompletion.create(
-                model=model_name,
-                messages=[{"role": "user", "content": full_prompt}]
-            )
-            if response and len(response) > 100:
-                return response
-        except Exception:
-            continue
-    return "Ma'lumot tayyorlashda xatolik yuz berdi."
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -211,10 +179,10 @@ def handle_menu(message):
             is_sub = check_sub(user_id)
             if not is_sub or invites < 3:
                 bot_info = bot.get_me()
-                ref_link = f"https://t.me/{bot_info.username}?start={user_id}"
+                ref_link = f"[https://t.me/](https://t.me/){bot_info.username}?start={user_id}"
                 
                 markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("📣 Kanal va guruhga a'zo bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.lstrip('@')}"))
+                markup.add(types.InlineKeyboardButton("📣 Kanal va guruhga a'zo bo'lish", url=f"[https://t.me/](https://t.me/){REQUIRED_CHANNEL.lstrip('@')}"))
                 
                 err = (f"🔒 **Bepul 1 ta ishlash limitingiz tugadi!**\n\n"
                        f"Davom etish uchun quyidagi shartlarni bajaring:\n"
@@ -233,13 +201,10 @@ def set_language(message):
     if user_id not in user_orders:
         return
     if "Rus" in message.text:
-        user_orders[user_id]["lang"] = "rus"
         user_orders[user_id]["lang_name"] = "Russian"
     elif "Ingliz" in message.text:
-        user_orders[user_id]["lang"] = "ingliz"
         user_orders[user_id]["lang_name"] = "English"
     else:
-        user_orders[user_id]["lang"] = "ozbek"
         user_orders[user_id]["lang_name"] = "Uzbek"
 
     bot.send_message(message.chat.id, "Ish hajmini tanlang:", reply_markup=size_menu())
@@ -261,69 +226,38 @@ def set_format(message):
     user_orders[user_id]["format"] = "word" if "Word" in message.text else "pdf"
 
     bot.send_message(message.chat.id, "Endi ishning **mavzusini** kiriting (masalan: *Kvant fizikasi asoslari*):", reply_markup=types.ReplyKeyboardRemove(), parse_mode="Markdown")
-    bot.register_next_step_handler(message, ask_image_choice)
+    bot.register_next_step_handler(message, generate_document_final)
 
-def ask_image_choice(message):
+def generate_document_final(message):
     user_id = message.from_user.id
     if user_id not in user_orders:
         return
+    
     user_orders[user_id]["topic"] = message.text
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        types.InlineKeyboardButton("🖼 Ha, sxemalar bilan", callback_data="img_yes"),
-        types.InlineKeyboardButton("📄 Yo'q, faqat matn", callback_data="img_no")
-    )
-    bot.send_message(message.chat.id, "Hujjatga mavzuga mos ilmiy sxemalar qo'shilsinmi?", reply_markup=markup)
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("img_"))
-def callback_image_choice(call):
-    user_id = call.from_user.id
-    if user_id not in user_orders:
-        bot.answer_callback_query(call.id, "Xatolik yuz berdi. /start buyrug'ini bosing.")
-        return
-
-    user_orders[user_id]["with_images"] = (call.data == "img_yes")
-    bot.answer_callback_query(call.id, "Qabul qilindi!")
-    
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
-
-    generate_document_final(call.message, user_id)
-
-def generate_document_final(message, user_id):
-    if user_id not in user_orders:
-        return
-    
     order_info = user_orders[user_id]
     topic = order_info["topic"]
     lang_name = order_info["lang_name"]
     doc_type = order_info["type"]
-    with_images = order_info["with_images"]
-    doc_format = order_info.get("format", "pdf")
+    doc_format = order_info.get("format", "word")
 
-    wait_msg = bot.send_message(message.chat.id, "⏳ A4 printer uchun hujjat tayyorlanmoqda, iltimos kuting...")
+    wait_msg = bot.send_message(message.chat.id, "⏳ Hujjat matni sun'iy intellekt yordamida tayyorlanmoqda, iltimos kuting...")
 
-    intro = ask_ai(f"Write a very long academic Introduction (Kirish) for the {doc_type} about: '{topic}'.", lang_name)
-    ch1 = ask_ai(f"Write Chapter 1 (1-Bob) with detailed subheadings about: '{topic}'.", lang_name)
-    ch2 = ask_ai(f"Write Chapter 2 (2-Bob) with detailed subheadings about: '{topic}'.", lang_name)
-    ch3 = ask_ai(f"Write Chapter 3 (3-Bob) about: '{topic}'.", lang_name)
-    conclusion = ask_ai(f"Write a comprehensive academic Conclusion (Xulosa) for the {doc_type} about: '{topic}'.", lang_name)
+    intro = ask_ai(f"Write a very long academic Introduction for the {doc_type} about: '{topic}'.", lang_name)
+    ch1 = ask_ai(f"Write Chapter 1 with detailed subheadings about: '{topic}'.", lang_name)
+    ch2 = ask_ai(f"Write Chapter 2 with detailed subheadings about: '{topic}'.", lang_name)
+    conclusion = ask_ai(f"Write a comprehensive academic Conclusion for the {doc_type} about: '{topic}'.", lang_name)
 
     sections = [
         ("KIRISH", intro),
         ("1-BOB. NAZARIY ASOSLARI", ch1),
         ("2-BOB. TAHLIL VA AMALIY AHAMIYATI", ch2),
-        ("3-BOB. ISTIQBOLLARI VA RIVOJLANISHI", ch3),
         ("XULOSA", conclusion)
     ]
 
     if doc_format == "word":
         if not WORD_AVAILABLE:
-            bot.send_message(message.chat.id, "⚠️ Serverda python-docx moduli o'rnatilmagani uchun hujjat PDF formatida yaratildi.")
-            doc_format = "pdf"
+            bot.send_message(message.chat.id, "⚠️ Serverda python-docx topilmadi, shuning uchun hujjat matn ko'rinishida yuboriladi.")
+            doc_format = "text"
         else:
             file_name = f"{user_id}_document.docx"
             doc = Document()
@@ -335,66 +269,31 @@ def generate_document_final(message, user_id):
                 for p in cleaned.split('\n'):
                     if p.strip():
                         doc.add_paragraph(p)
-                if with_images:
-                    doc.add_paragraph(f"[Mavzu sxemasi: {topic}]")
                 doc.add_page_break()
             doc.save(file_name)
 
     if doc_format == "pdf":
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib import colors
+
         file_name = f"{user_id}_document.pdf"
-        doc = SimpleDocTemplate(
-            file_name, 
-            pagesize=A4,
-            leftMargin=56, rightMargin=56,
-            topMargin=56, bottomMargin=56
-        )
-
-        styles = ParagraphStyle(
-            'Normal',
-            fontName=PDF_FONT,
-            fontSize=12,
-            leading=18,
-            textColor=colors.HexColor('#222222')
-        )
+        doc = SimpleDocTemplate(file_name, pagesize=A4, leftMargin=56, rightMargin=56, topMargin=56, bottomMargin=56)
         
-        title_style = ParagraphStyle(
-            'TitleStyle',
-            fontName=PDF_FONT,
-            fontSize=18,
-            leading=24,
-            alignment=1,
-            textColor=colors.HexColor('#1a365d')
-        )
+        styles = ParagraphStyle('Normal', fontSize=11, leading=16, textColor=colors.HexColor('#222222'))
+        title_style = ParagraphStyle('TitleStyle', fontSize=16, leading=22, alignment=1, textColor=colors.HexColor('#1a365d'))
+        heading_style = ParagraphStyle('HeadingStyle', fontSize=13, leading=17, textColor=colors.HexColor('#1a365d'), spaceBefore=12, spaceAfter=8)
 
-        section_heading_style = ParagraphStyle(
-            'HeadingStyle',
-            fontName=PDF_FONT,
-            fontSize=14,
-            leading=18,
-            textColor=colors.HexColor('#1a365d'),
-            spaceBefore=15,
-            spaceAfter=10
-        )
-
-        story = []
-        story.append(Paragraph(f"<b>Mavzu: {topic}</b>", title_style))
-        story.append(Spacer(1, 20))
+        story = [Paragraph(f"<b>Mavzu: {topic}</b>", title_style), Spacer(1, 15)]
 
         for title, text in sections:
-            story.append(Paragraph(title, section_heading_style))
-            story.append(Spacer(1, 5))
-            
+            story.append(Paragraph(title, heading_style))
             cleaned = clean_text_for_pdf(text)
             for p in cleaned.split('\n'):
                 if p.strip():
                     story.append(Paragraph(p, styles))
-                    story.append(Spacer(1, 8))
-            
-            if with_images:
-                story.append(Spacer(1, 10))
-                story.append(create_topic_drawing(title, topic))
-                story.append(Spacer(1, 10))
-            
+                    story.append(Spacer(1, 6))
             story.append(PageBreak())
 
         doc.build(story)
@@ -406,15 +305,20 @@ def generate_document_final(message, user_id):
     conn.close()
 
     try:
-        with open(file_name, 'rb') as f:
-            bot.send_document(message.chat.id, f, caption=f"✅ Sizning **{topic}** mavzusidagi ishingiz tayyor!", parse_mode="Markdown")
+        if doc_format in ["word", "pdf"]:
+            with open(file_name, 'rb') as f:
+                bot.send_document(message.chat.id, f, caption=f"✅ Sizning **{topic}** mavzusidagi ishingiz tayyor!", parse_mode="Markdown")
+            os.remove(file_name)
+        else:
+            full_text = f"<b>Mavzu: {topic}</b>\n\n"
+            for t, txt in sections:
+                full_text += f"<b>{t}</b>\n{clean_text_for_pdf(txt)}\n\n"
+            bot.send_message(message.chat.id, full_text[:4000], parse_mode="HTML")
+            
         bot.delete_message(message.chat.id, wait_msg.message_id)
     except Exception as e:
         bot.send_message(message.chat.id, f"Faylni yuborishda xatolik yuz berdi: {e}")
 
-    if os.path.exists(file_name):
-        os.remove(file_name)
-            
     if user_id in user_orders:
         del user_orders[user_id]
         
