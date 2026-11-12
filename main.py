@@ -1,17 +1,19 @@
-import telebot
-from telebot import types
-import sqlite3
-import os
-import re
+from docx import Document
+from flask import Flask
 import g4f
-import requests
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.graphics.shapes import Drawing, Rect, String, Line
-from reportlab.lib.styles import ParagraphStyle
+import os
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.graphics.shapes import Drawing, Rect, String, Line
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import sqlite3
+import telebot
+from telebot import types
+import threading
+import re
 
 try:
     from docx import Document
@@ -19,6 +21,7 @@ try:
 except ImportError:
     WORD_AVAILABLE = False
 
+# 1. Tokeningiz va sozlamalar
 TOKEN = "9204315206:AAHcHQDoCP1L7PNxCf_r4LedwkHbUIiyLnE"
 REQUIRED_CHANNEL = "@talaba_guruh1"
 REQUIRED_GROUP = "@talaba_guruh1"
@@ -26,6 +29,13 @@ ADMIN_ID = 8161543250
 
 bot = telebot.TeleBot(TOKEN)
 user_orders = {}
+
+# 2. Render port talabini qondirish uchun Flask serveri
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Talaba Bot is active 24/7!"
 
 def register_unicode_font():
     font_paths = [
@@ -85,27 +95,19 @@ def clean_text_for_pdf(text):
             cleaned_lines.append(cleaned_line.strip())
     return "\n".join(cleaned_lines)
 
-# Kafolatlangan va har qanday mavzuga moslashuvchi professional ilmiy diagramma/sxema
 def create_topic_drawing(title_text, topic_name):
     d = Drawing(400, 160)
     d.add(Rect(0, 0, 400, 160, fillColor=colors.HexColor('#f8fafc'), strokeColor=colors.HexColor('#cbd5e1'), strokeWidth=1, rx=8, ry=8))
-    
     d.add(Rect(20, 120, 360, 25, fillColor=colors.HexColor('#1a365d'), strokeColor=None, rx=4, ry=4))
     d.add(String(25, 127, f"Sxema: {topic_name[:35]}", fontName=PDF_FONT, fontSize=11, fillColor=colors.white))
-    
     d.add(Rect(30, 40, 90, 50, fillColor=colors.HexColor('#e2e8f0'), strokeColor=colors.HexColor('#64748b'), rx=4, ry=4))
     d.add(String(42, 62, "1-Bosqich", fontName=PDF_FONT, fontSize=10, fillColor=colors.HexColor('#1e293b')))
-    
     d.add(Line(120, 65, 155, 65, strokeColor=colors.HexColor('#1a365d'), strokeWidth=2))
-    
     d.add(Rect(155, 40, 90, 50, fillColor=colors.HexColor('#bfdbfe'), strokeColor=colors.HexColor('#3b82f6'), rx=4, ry=4))
     d.add(String(167, 62, "Amaliyot", fontName=PDF_FONT, fontSize=10, fillColor=colors.HexColor('#1e395b')))
-    
     d.add(Line(245, 65, 280, 65, strokeColor=colors.HexColor('#1a365d'), strokeWidth=2))
-    
     d.add(Rect(280, 40, 90, 50, fillColor=colors.HexColor('#bbf7d0'), strokeColor=colors.HexColor('#22c55e'), rx=4, ry=4))
     d.add(String(295, 62, "Xulosa", fontName=PDF_FONT, fontSize=10, fillColor=colors.HexColor('#166534')))
-    
     return d
 
 def main_menu(user_id):
@@ -418,6 +420,13 @@ def generate_document_final(message, user_id):
         
     bot.send_message(message.chat.id, "Yana xizmat turini tanlashingiz mumkin:", reply_markup=main_menu(user_id))
 
+# 3. Server va botni birgalikda 24/7 ishga tushirish
 if __name__ == '__main__':
-    print("Bot ishga tushdi...")
+    def run_flask():
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+    server_thread = threading.Thread(target=run_flask)
+    server_thread.start()
+
+    print("Bot 24/7 rejimida ishga tushdi...")
     bot.infinity_polling()
